@@ -54,6 +54,10 @@
 
 */
 
+DEF_STAT(  COMPULSORY           , COUNT  , NO_RATIO  )
+DEF_STAT(  CONFLICT           , COUNT  , NO_RATIO  )
+DEF_STAT(  CAPACITY           , COUNT  , NO_RATIO  )
+
 DEF_STAT(  ICACHE_MISS		   , DIST  , NO_RATIO  )
 DEF_STAT(  ICACHE_HIT		   , DIST  , NO_RATIO  )
 

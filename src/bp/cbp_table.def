@@ -14,3 +14,6 @@
 
 DEF_CBP("mtage", MTAGE)
 DEF_CBP("tage64k", TAGE64K)
+DEF_CBP("take", TAKE)
+DEF_CBP("notake", NOTAKE)
+DEF_CBP("twolevel", TWOLEVEL)

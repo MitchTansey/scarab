@@ -48,6 +48,7 @@ typedef struct Dcache_Stage_struct {
   Cache  dcache;      /* the data cache */
   Ports* ports;       /* read and write ports to the data cache (per bank) */
   Cache  pref_dcache; /* prefetcher cache for data cache */
+  Cache shadow_dcache;
 
   Counter idle_cycle;  /* Cycle the cache will be idle */
   Flag    mem_blocked; /* Are memory request buffers (aka MSHRs) full? */

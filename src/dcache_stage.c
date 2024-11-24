@@ -33,6 +33,8 @@
 #include "globals/global_types.h"
 #include "globals/global_vars.h"
 #include "globals/utils.h"
+#include "hashtable_me.h"
+#include <stdbool.h>
 
 #include "bp/bp.h"
 #include "dcache_stage.h"
@@ -62,6 +64,8 @@
 /* Global Variables */
 
 Dcache_Stage* dc = NULL;
+hashtable_t hash_table;
+int flag;
 
 /**************************************************************************************/
 /* set_dcache_stage: */
@@ -92,6 +96,12 @@ void init_dcache_stage(uns8 proc_id, const char* name) {
   /* initialize the cache structure */
   init_cache(&dc->dcache, "DCACHE", DCACHE_SIZE, DCACHE_ASSOC, DCACHE_LINE_SIZE,
              sizeof(Dcache_Data), DCACHE_REPL);
+
+  init_cache(&dc->shadow_dcache, "SHADOW_DCACHE", DCACHE_SIZE, (DCACHE_SIZE / DCACHE_LINE_SIZE), DCACHE_LINE_SIZE,
+             sizeof(Dcache_Data), DCACHE_REPL);
+
+  //hashmap creation
+  hashtable_me_init(&hash_table, 300000);
 
   reset_dcache_stage();
 
@@ -156,6 +166,7 @@ void debug_dcache_stage() {
 /* update_dcache_stage: */
 void update_dcache_stage(Stage_Data* src_sd) {
   Dcache_Data* line;
+  Dcache_Data* line_s;
   Counter      oldest_op_num, last_oldest_op_num;
   uns          oldest_index;
   int          start_op_count;
@@ -286,6 +297,8 @@ void update_dcache_stage(Stage_Data* src_sd) {
 
     line = (Dcache_Data*)cache_access(&dc->dcache, op->oracle_info.va,
                                       &line_addr, TRUE);
+    line_s = (Dcache_Data*)cache_access(&dc->shadow_dcache, op->oracle_info.va,
+                                      &line_addr, TRUE);
     op->dcache_cycle = cycle_count;
     dc->idle_cycle   = MAX2(dc->idle_cycle, cycle_count + DCACHE_CYCLES);
 
@@ -301,6 +314,23 @@ void update_dcache_stage(Stage_Data* src_sd) {
 
     op->oracle_info.dcmiss = FALSE;
     wrongpath_dcmiss       = FALSE;
+
+    flag = 0;
+
+    if(!hashtable_me_lookup(&hash_table, line_addr)) {
+      STAT_EVENT(op->proc_id, COMPULSORY);
+      hashtable_me_add(&hash_table, line_addr, "");
+      flag = 1;
+    }
+
+    if(!flag) {
+        if(!line && line_s) {
+            STAT_EVENT(op->proc_id, CONFLICT);
+        } else if(!line && !line_s) {
+            STAT_EVENT(op->proc_id, CAPACITY);
+        }
+    }
+
     if(PERFECT_DCACHE) {
       if(!op->off_path) {
         STAT_EVENT(op->proc_id, DCACHE_HIT);
@@ -315,7 +345,7 @@ void update_dcache_stage(Stage_Data* src_sd) {
         wake_up_ops(op, REG_DATA_DEP, model->wake_hook);
       }
     } else if(line) {  // data cache hit
-
+    
       if(PREF_FRAMEWORK_ON &&  // if framework is on use new prefetcher.
                                // otherwise old one
          (PREF_UPDATE_ON_WRONGPATH || !op->off_path)) {
@@ -403,6 +433,7 @@ void update_dcache_stage(Stage_Data* src_sd) {
             Addr         one_more_addr;
             Addr         extra_line_addr;
             Dcache_Data* extra_line;
+            Dcache_Data* extra_line_s;
 
             one_more_addr = ((line_addr >> LOG2(DCACHE_LINE_SIZE)) & 1) ?
                               ((line_addr >> LOG2(DCACHE_LINE_SIZE)) - 1)
@@ -411,6 +442,9 @@ void update_dcache_stage(Stage_Data* src_sd) {
                                 << LOG2(DCACHE_LINE_SIZE);
 
             extra_line = (Dcache_Data*)cache_access(&dc->dcache, one_more_addr,
+                                                    &extra_line_addr, FALSE);
+
+            extra_line_s = (Dcache_Data*)cache_access(&dc->shadow_dcache, one_more_addr,
                                                     &extra_line_addr, FALSE);
             ASSERT(dc->proc_id, one_more_addr == extra_line_addr);
             if(!extra_line) {
@@ -458,6 +492,7 @@ void update_dcache_stage(Stage_Data* src_sd) {
             Addr         one_more_addr;
             Addr         extra_line_addr;
             Dcache_Data* extra_line;
+            Dcache_Data* extra_line_s;
 
             one_more_addr = ((line_addr >> LOG2(DCACHE_LINE_SIZE)) & 1) ?
                               ((line_addr >> LOG2(DCACHE_LINE_SIZE)) - 1)
@@ -466,6 +501,8 @@ void update_dcache_stage(Stage_Data* src_sd) {
                                 << LOG2(DCACHE_LINE_SIZE);
 
             extra_line = (Dcache_Data*)cache_access(&dc->dcache, one_more_addr,
+                                                    &extra_line_addr, FALSE);
+            extra_line_s = (Dcache_Data*)cache_access(&dc->shadow_dcache, one_more_addr,
                                                     &extra_line_addr, FALSE);
             ASSERT(dc->proc_id, one_more_addr == extra_line_addr);
             if(!extra_line) {
@@ -516,6 +553,7 @@ void update_dcache_stage(Stage_Data* src_sd) {
             Addr         one_more_addr;
             Addr         extra_line_addr;
             Dcache_Data* extra_line;
+            Dcache_Data* extra_line_s;
 
             one_more_addr = ((line_addr >> LOG2(DCACHE_LINE_SIZE)) & 1) ?
                               ((line_addr >> LOG2(DCACHE_LINE_SIZE)) - 1)
@@ -524,6 +562,8 @@ void update_dcache_stage(Stage_Data* src_sd) {
                                 << LOG2(DCACHE_LINE_SIZE);
 
             extra_line = (Dcache_Data*)cache_access(&dc->dcache, one_more_addr,
+                                                    &extra_line_addr, FALSE);
+            extra_line_s = (Dcache_Data*)cache_access(&dc->shadow_dcache, one_more_addr,
                                                     &extra_line_addr, FALSE);
             ASSERT(dc->proc_id, one_more_addr == extra_line_addr);
             if(!extra_line) {
@@ -582,6 +622,8 @@ void update_dcache_stage(Stage_Data* src_sd) {
     update_l2way_pref_req_queue();
   if(L2MARKV_PREF_ON && !L1MARKV_PREF_IMMEDIATE)
     update_l2markv_pref_req_queue();
+
+  flag = 0;
 }
 
 
@@ -592,6 +634,7 @@ Flag dcache_fill_line(Mem_Req* req) {
   uns bank = req->addr >> dc->dcache.shift_bits &
              N_BIT_MASK(LOG2(DCACHE_BANKS));
   Dcache_Data* data;
+  Dcache_Data* data_s;
   Addr         line_addr, repl_line_addr;
   Op*          op;
   Op**         op_p  = (Op**)list_start_head_traversal(&req->op_ptrs);
@@ -637,6 +680,9 @@ Flag dcache_fill_line(Mem_Req* req) {
     Flag repl_line_valid;
     data = (Dcache_Data*)get_next_repl_line(&dc->dcache, dc->proc_id, req->addr,
                                             &repl_line_addr, &repl_line_valid);
+
+    data_s = (Dcache_Data*)get_next_repl_line(&dc->shadow_dcache, dc->proc_id, req->addr,
+                                            &repl_line_addr, &repl_line_valid);
     if(repl_line_valid && data->dirty) {
       /* need to do a write-back */
       uns repl_proc_id = get_proc_id_from_cmp_addr(repl_line_addr);
@@ -676,6 +722,9 @@ Flag dcache_fill_line(Mem_Req* req) {
     }
 
     data = (Dcache_Data*)cache_insert(&dc->dcache, dc->proc_id, req->addr,
+                                      &line_addr, &repl_line_addr);
+    
+    data_s = (Dcache_Data*)cache_insert(&dc->shadow_dcache, dc->proc_id, req->addr,
                                       &line_addr, &repl_line_addr);
     DEBUG(dc->proc_id,
           "Filling dcache  off_path:%d addr:0x%s  :%7d index:%7d op_count:%d "

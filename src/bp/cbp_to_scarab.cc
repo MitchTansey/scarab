@@ -12,6 +12,9 @@
 /**Add CBP Header Below**/
 #include "mtage_unlimited.h"
 #include "cbp_tagescl_64k.h"
+#include "cbp_take.h"
+#include "cbp_notake.h"
+#include "cbp_twolevel.h"
 /************************/
 
 /******DO NOT MODIFY BELOW THIS POINT*****/
